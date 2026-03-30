@@ -10,7 +10,7 @@ services:
     plan: free
     envVars:
       - key: AZDO_ORG
-        sync: false  # à renseigner dans le dashboard Render
+        sync: false # à renseigner dans le dashboard Render
       - key: AZDO_PROJECT
         sync: false
       - key: AZDO_PAT

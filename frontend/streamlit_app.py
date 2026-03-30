@@ -179,22 +179,29 @@ if "nav" not in st.session_state:
 if "selected_build_id" not in st.session_state:
     st.session_state["selected_build_id"] = None
 
+NAV_LIST = "📋 Liste des déploiements"
+NAV_DETAIL = "🔍 Détail d'un déploiement"
+NAV_OPTIONS = [NAV_LIST, NAV_DETAIL]
+
+# Forcer la valeur du widget radio AVANT son rendu
+# Quand on change session_state["nav"], on synchronise la clé du widget
+if st.session_state["nav"] == "detail":
+    st.session_state["nav_radio"] = NAV_DETAIL
+else:
+    st.session_state["nav_radio"] = NAV_LIST
+
 st.sidebar.markdown("## 🚀 DeployX")
 st.sidebar.markdown("---")
-
-NAV_OPTIONS = ["📋 Liste des déploiements", "🔍 Détail d'un déploiement"]
-nav_index = 0 if st.session_state["nav"] == "list" else 1
 
 page = st.sidebar.radio(
     "Navigation",
     NAV_OPTIONS,
-    index=nav_index,
     label_visibility="collapsed",
     key="nav_radio",
 )
 
-# Synchroniser : si l'utilisateur clique manuellement sur le radio
-if page == NAV_OPTIONS[0]:
+# Synchroniser le retour : si l'utilisateur clique manuellement sur le radio
+if page == NAV_LIST:
     st.session_state["nav"] = "list"
 else:
     st.session_state["nav"] = "detail"
