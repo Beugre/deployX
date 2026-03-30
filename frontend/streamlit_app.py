@@ -105,14 +105,27 @@ st.markdown(
 def api_get(path: str, params: dict | None = None) -> Any:
     """Appel GET vers le backend FastAPI."""
     try:
-        resp = requests.get(f"{BACKEND_URL}{path}", params=params, timeout=30)
+        resp = requests.get(f"{BACKEND_URL}{path}", params=params, timeout=60)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        st.error("❌ Backend indisponible. Lancez le serveur FastAPI.")
+        st.error("❌ Backend indisponible. Vérifiez que le serveur FastAPI est démarré.")
+        st.info("💡 Sur Render (plan Free), le backend peut mettre ~30s à se réveiller. Rechargez la page.")
+        st.stop()
+    except requests.exceptions.Timeout:
+        st.warning("⏳ Le backend met du temps à répondre (cold start probable). Rechargez la page dans quelques secondes.")
         st.stop()
     except requests.exceptions.HTTPError as exc:
-        st.error(f"❌ Erreur API : {exc.response.status_code} — {exc.response.text}")
+        code = exc.response.status_code
+        # Si la réponse est du HTML (page d'erreur Render), afficher un message propre
+        content_type = exc.response.headers.get("content-type", "")
+        if "html" in content_type or exc.response.text.strip().startswith("<!"):
+            if code == 502:
+                st.warning("⏳ Le backend est en cours de démarrage (cold start). Rechargez dans ~30 secondes.")
+            else:
+                st.error(f"❌ Erreur {code} du backend. Vérifiez que le service est bien déployé.")
+        else:
+            st.error(f"❌ Erreur API ({code}) : {exc.response.text[:300]}")
         st.stop()
 
 
