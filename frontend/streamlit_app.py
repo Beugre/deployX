@@ -98,6 +98,47 @@ st.markdown(
 
 
 # ------------------------------------------------------------------ #
+#  Warm-up automatique du backend
+# ------------------------------------------------------------------ #
+
+
+def wake_up_backend(max_retries: int = 12, interval: float = 5.0) -> bool:
+    """Ping le backend jusqu'à ce qu'il réponde (max ~60s)."""
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
+            if resp.status_code == 200:
+                return True
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            pass
+        time.sleep(interval)
+    return False
+
+
+# Au chargement, vérifier si le backend est prêt
+if "backend_ready" not in st.session_state:
+    st.session_state["backend_ready"] = False
+
+if not st.session_state["backend_ready"]:
+    # Test rapide
+    try:
+        r = requests.get(f"{BACKEND_URL}/health", timeout=3)
+        if r.status_code == 200:
+            st.session_state["backend_ready"] = True
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        pass
+
+    if not st.session_state["backend_ready"]:
+        with st.spinner("⏳ Réveil du backend en cours… (~30 secondes pour le plan gratuit Render)"):
+            if wake_up_backend():
+                st.session_state["backend_ready"] = True
+                st.rerun()
+            else:
+                st.error("❌ Impossible de joindre le backend après 60s. Vérifiez le déploiement.")
+                st.stop()
+
+
+# ------------------------------------------------------------------ #
 #  Helpers
 # ------------------------------------------------------------------ #
 
