@@ -1,0 +1,30 @@
+# Render Blueprint — déploie les deux services automatiquement
+# https://render.com/docs/blueprint-spec
+
+services:
+  # --- Backend FastAPI ---
+  - type: web
+    name: deployx-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    envVars:
+      - key: AZDO_ORG
+        sync: false  # à renseigner dans le dashboard Render
+      - key: AZDO_PROJECT
+        sync: false
+      - key: AZDO_PAT
+        sync: false
+    healthCheckPath: /health
+
+  # --- Frontend Streamlit ---
+  - type: web
+    name: deployx-ui
+    runtime: docker
+    dockerfilePath: ./Dockerfile.frontend
+    plan: free
+    envVars:
+      - key: DEPLOYX_BACKEND_URL
+        # Remplacer par l'URL réelle du backend après déploiement
+        # Ex: https://deployx-api.onrender.com
+        value: https://deployx-api.onrender.com
