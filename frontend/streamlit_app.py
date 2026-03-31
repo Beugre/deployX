@@ -492,33 +492,37 @@ elif st.session_state["nav"] == "detail":
     with h4:
         st.metric("Durée", format_duration(detail.get("duration")))
 
-    # Actions : Re-run / Annuler
+    # Actions : Re-run / Annuler (avec confirmation)
     act1, act2, act3 = st.columns([1, 1, 4])
     with act1:
-        if st.button("🔁 Re-run", key="rerun_btn"):
-            def_id = detail.get("definition_id")
-            if def_id:
-                with st.spinner("Lancement…"):
-                    result = api_post(
-                        f"/pipelines/{def_id}/run",
-                        params={"branch": detail.get("branch")},
-                    )
-                    if result and result.get("id"):
-                        st.success(f"✅ Build #{result['id']} lancé !")
-                        time.sleep(1)
-                        st.session_state["selected_build_id"] = result["id"]
-                        st.rerun()
-            else:
-                st.warning("Definition ID non disponible pour ce build.")
+        with st.popover("🔁 Re-run"):
+            st.markdown(f"**Relancer le build #{build_id}** sur la branche `{detail.get('branch', '—')}` ?")
+            if st.button("✅ Confirmer le re-run", key="confirm_rerun"):
+                def_id = detail.get("definition_id")
+                if def_id:
+                    with st.spinner("Lancement…"):
+                        result = api_post(
+                            f"/pipelines/{def_id}/run",
+                            params={"branch": detail.get("branch")},
+                        )
+                        if result and result.get("id"):
+                            st.success(f"✅ Build #{result['id']} lancé !")
+                            time.sleep(1)
+                            st.session_state["selected_build_id"] = result["id"]
+                            st.rerun()
+                else:
+                    st.warning("Definition ID non disponible pour ce build.")
     with act2:
         if is_in_progress:
-            if st.button("🛑 Annuler", key="cancel_btn"):
-                with st.spinner("Annulation…"):
-                    result = api_post(f"/deployments/{build_id}/cancel")
-                    if result:
-                        st.warning(f"🚫 Build #{build_id} annulé.")
-                        time.sleep(1)
-                        st.rerun()
+            with st.popover("🛑 Annuler"):
+                st.markdown(f"⚠️ **Annuler le build #{build_id}** en cours ?")
+                if st.button("❌ Confirmer l'annulation", key="confirm_cancel"):
+                    with st.spinner("Annulation…"):
+                        result = api_post(f"/deployments/{build_id}/cancel")
+                        if result:
+                            st.warning(f"🚫 Build #{build_id} annulé.")
+                            time.sleep(1)
+                            st.rerun()
     with act3:
         # Lien vers l'historique de la pipeline
         def_id = detail.get("definition_id")
@@ -689,23 +693,25 @@ elif st.session_state["nav"] == "run":
     st.markdown(f"**Branche** : `{branch_input or default_branch}`")
     st.markdown(f"**Definition ID** : `{selected_pipeline['id']}`")
 
-    # Bouton lancer
+    # Bouton lancer avec confirmation
     st.markdown("")
-    if st.button("🚀 Lancer le build", type="primary"):
-        with st.spinner("Lancement en cours…"):
-            result = api_post(
-                f"/pipelines/{selected_pipeline['id']}/run",
-                params={"branch": branch_input or default_branch},
-            )
-            if result and result.get("id"):
-                st.success(f"✅ Build **#{result['id']}** lancé avec succès !")
-                st.balloons()
-                time.sleep(2)
-                st.session_state["selected_build_id"] = result["id"]
-                st.session_state["nav"] = "detail"
-                st.rerun()
-            elif result:
-                st.error(f"Réponse inattendue : {result}")
+    with st.popover("🚀 Lancer le build", use_container_width=True):
+        st.markdown(f"**Lancer la pipeline** `{selected_name}` sur la branche `{branch_input or default_branch}` ?")
+        if st.button("✅ Confirmer le lancement", key="confirm_launch", type="primary"):
+            with st.spinner("Lancement en cours…"):
+                result = api_post(
+                    f"/pipelines/{selected_pipeline['id']}/run",
+                    params={"branch": branch_input or default_branch},
+                )
+                if result and result.get("id"):
+                    st.success(f"✅ Build **#{result['id']}** lancé avec succès !")
+                    st.balloons()
+                    time.sleep(2)
+                    st.session_state["selected_build_id"] = result["id"]
+                    st.session_state["nav"] = "detail"
+                    st.rerun()
+                elif result:
+                    st.error(f"Réponse inattendue : {result}")
 
 
 # ================================================================== #
