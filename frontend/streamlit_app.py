@@ -300,8 +300,18 @@ NAV_OPTIONS = [NAV_LIST, NAV_DETAIL, NAV_RUN, NAV_HISTORY]
 NAV_MAP = {"list": NAV_LIST, "detail": NAV_DETAIL, "run": NAV_RUN, "history": NAV_HISTORY}
 NAV_REVERSE = {v: k for k, v in NAV_MAP.items()}
 
+
+def _on_nav_change():
+    """Callback quand l'utilisateur clique sur le radio."""
+    st.session_state["nav"] = NAV_REVERSE.get(st.session_state["nav_radio"], "list")
+
+
 # Forcer la valeur du widget radio AVANT son rendu
-st.session_state["nav_radio"] = NAV_MAP.get(st.session_state["nav"], NAV_LIST)
+# Uniquement si le changement vient du code (bouton "Ouvrir", etc.)
+# et pas du radio lui-même (sinon on crée une boucle)
+if "_nav_from_code" in st.session_state and st.session_state["_nav_from_code"]:
+    st.session_state["nav_radio"] = NAV_MAP.get(st.session_state["nav"], NAV_LIST)
+    st.session_state["_nav_from_code"] = False
 
 st.sidebar.markdown("## 🚀 DeployX")
 st.sidebar.markdown("---")
@@ -311,9 +321,10 @@ page = st.sidebar.radio(
     NAV_OPTIONS,
     label_visibility="collapsed",
     key="nav_radio",
+    on_change=_on_nav_change,
 )
 
-# Synchroniser le retour : si l'utilisateur clique manuellement sur le radio
+# Synchroniser : si c'est le premier chargement ou un clic radio
 st.session_state["nav"] = NAV_REVERSE.get(page, "list")
 
 st.sidebar.markdown("---")
@@ -426,6 +437,7 @@ if st.session_state["nav"] == "list":
             if st.button("Ouvrir ▶", key=f"open_{dep_id}"):
                 st.session_state["selected_build_id"] = dep_id
                 st.session_state["nav"] = "detail"
+                st.session_state["_nav_from_code"] = True
                 st.rerun()
 
         st.divider()
@@ -451,6 +463,7 @@ elif st.session_state["nav"] == "detail":
     # --- Bouton retour ---
     if st.button("⬅️ Retour à la liste"):
         st.session_state["nav"] = "list"
+        st.session_state["_nav_from_code"] = True
         st.rerun()
 
     # Sélection du build ID
@@ -530,6 +543,7 @@ elif st.session_state["nav"] == "detail":
             if st.button("📊 Historique pipeline", key="history_link"):
                 st.session_state["selected_pipeline_id"] = def_id
                 st.session_state["nav"] = "history"
+                st.session_state["_nav_from_code"] = True
                 st.rerun()
 
     info1, info2, info3 = st.columns(3)
@@ -709,6 +723,7 @@ elif st.session_state["nav"] == "run":
                     time.sleep(2)
                     st.session_state["selected_build_id"] = result["id"]
                     st.session_state["nav"] = "detail"
+                    st.session_state["_nav_from_code"] = True
                     st.rerun()
                 elif result:
                     st.error(f"Réponse inattendue : {result}")
@@ -829,4 +844,5 @@ elif st.session_state["nav"] == "history":
             if st.button("▶", key=f"hist_{e_id}"):
                 st.session_state["selected_build_id"] = e_id
                 st.session_state["nav"] = "detail"
+                st.session_state["_nav_from_code"] = True
                 st.rerun()
