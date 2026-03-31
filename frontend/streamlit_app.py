@@ -163,13 +163,14 @@ if not st.session_state["backend_ready"]:
                     error_display.empty()
                     st.rerun()
                 else:
-                    error_display.caption(f"⚠️ Réponse HTTP {resp.status_code}")
+                    error_display.caption(f"⚠️ Réponse HTTP {resp.status_code} — le backend démarre…")
+                    time.sleep(5)
             except requests.exceptions.ConnectionError as e:
                 error_display.caption(f"🔌 ConnectionError : {str(e)[:200]}")
-                time.sleep(3)
+                time.sleep(5)
             except requests.exceptions.Timeout:
                 error_display.caption("⏱️ Timeout 120s — le backend n'a pas répondu")
-                pass
+                time.sleep(2)
 
             elapsed = int(time.time() - start_ts)
             minutes = elapsed // 60
