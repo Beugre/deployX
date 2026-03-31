@@ -134,8 +134,7 @@ if not st.session_state["backend_ready"]:
             "⏳ **Réveil du backend en cours…**\n\n"
             "Le plan gratuit Render met le serveur en veille après 15 min d'inactivité. "
             "Le redémarrage prend généralement **30 à 90 secondes**. "
-            "Merci de patienter, cette page se mettra à jour automatiquement.\n\n"
-            f"🔗 Backend URL : `{BACKEND_URL}`"
+            "Merci de patienter, cette page se mettra à jour automatiquement."
         )
 
         progress = st.progress(0, text="Connexion au backend…")
@@ -213,6 +212,20 @@ def api_get(path: str, params: dict | None = None) -> Any:
         st.stop()
 
 
+def api_post(path: str, params: dict | None = None) -> Any:
+    """Appel POST vers le backend FastAPI."""
+    try:
+        resp = requests.post(f"{BACKEND_URL}{path}", params=params, timeout=60)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.HTTPError as exc:
+        st.error(f"❌ Erreur API ({exc.response.status_code}) : {exc.response.text[:300]}")
+        return None
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        st.error("❌ Backend indisponible.")
+        return None
+
+
 def badge(status: str) -> str:
     s = status.lower().replace(" ", "")
     return f'<span class="badge badge-{s}">{status}</span>'
@@ -275,17 +288,20 @@ if "nav" not in st.session_state:
     st.session_state["nav"] = "list"
 if "selected_build_id" not in st.session_state:
     st.session_state["selected_build_id"] = None
+if "selected_pipeline_id" not in st.session_state:
+    st.session_state["selected_pipeline_id"] = None
 
 NAV_LIST = "📋 Liste des déploiements"
 NAV_DETAIL = "🔍 Détail d'un déploiement"
-NAV_OPTIONS = [NAV_LIST, NAV_DETAIL]
+NAV_RUN = "▶️ Lancer une pipeline"
+NAV_HISTORY = "📊 Historique pipeline"
+NAV_OPTIONS = [NAV_LIST, NAV_DETAIL, NAV_RUN, NAV_HISTORY]
+
+NAV_MAP = {"list": NAV_LIST, "detail": NAV_DETAIL, "run": NAV_RUN, "history": NAV_HISTORY}
+NAV_REVERSE = {v: k for k, v in NAV_MAP.items()}
 
 # Forcer la valeur du widget radio AVANT son rendu
-# Quand on change session_state["nav"], on synchronise la clé du widget
-if st.session_state["nav"] == "detail":
-    st.session_state["nav_radio"] = NAV_DETAIL
-else:
-    st.session_state["nav_radio"] = NAV_LIST
+st.session_state["nav_radio"] = NAV_MAP.get(st.session_state["nav"], NAV_LIST)
 
 st.sidebar.markdown("## 🚀 DeployX")
 st.sidebar.markdown("---")
@@ -298,14 +314,11 @@ page = st.sidebar.radio(
 )
 
 # Synchroniser le retour : si l'utilisateur clique manuellement sur le radio
-if page == NAV_LIST:
-    st.session_state["nav"] = "list"
-else:
-    st.session_state["nav"] = "detail"
+st.session_state["nav"] = NAV_REVERSE.get(page, "list")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(
-    "<small style='color: #9ca3af;'>DeployX v1.0 — Azure DevOps Tracker</small>",
+    "<small style='color: #9ca3af;'>DeployX v2.0 — Azure DevOps Tracker</small>",
     unsafe_allow_html=True,
 )
 
@@ -417,12 +430,21 @@ if st.session_state["nav"] == "list":
 
         st.divider()
 
+    # Auto-refresh si des builds sont en cours
+    has_in_progress = any(
+        d.get("status", "").lower() == "inprogress" for d in deployments
+    )
+    if has_in_progress:
+        st.info("🔄 Build(s) en cours — rafraîchissement automatique dans 10 secondes…")
+        time.sleep(10)
+        st.rerun()
+
 
 # ================================================================== #
 #  PAGE 2 — Détail d'un déploiement
 # ================================================================== #
 
-else:
+elif st.session_state["nav"] == "detail":
     st.markdown('<p class="header-title">🔍 Détail du déploiement</p>', unsafe_allow_html=True)
     st.markdown("")
 
@@ -469,6 +491,42 @@ else:
         st.markdown(f"**Statut** : {badge(dep_status)}", unsafe_allow_html=True)
     with h4:
         st.metric("Durée", format_duration(detail.get("duration")))
+
+    # Actions : Re-run / Annuler
+    act1, act2, act3 = st.columns([1, 1, 4])
+    with act1:
+        if st.button("🔁 Re-run", key="rerun_btn"):
+            def_id = detail.get("definition_id")
+            if def_id:
+                with st.spinner("Lancement…"):
+                    result = api_post(
+                        f"/pipelines/{def_id}/run",
+                        params={"branch": detail.get("branch")},
+                    )
+                    if result and result.get("id"):
+                        st.success(f"✅ Build #{result['id']} lancé !")
+                        time.sleep(1)
+                        st.session_state["selected_build_id"] = result["id"]
+                        st.rerun()
+            else:
+                st.warning("Definition ID non disponible pour ce build.")
+    with act2:
+        if is_in_progress:
+            if st.button("🛑 Annuler", key="cancel_btn"):
+                with st.spinner("Annulation…"):
+                    result = api_post(f"/deployments/{build_id}/cancel")
+                    if result:
+                        st.warning(f"🚫 Build #{build_id} annulé.")
+                        time.sleep(1)
+                        st.rerun()
+    with act3:
+        # Lien vers l'historique de la pipeline
+        def_id = detail.get("definition_id")
+        if def_id:
+            if st.button("📊 Historique pipeline", key="history_link"):
+                st.session_state["selected_pipeline_id"] = def_id
+                st.session_state["nav"] = "history"
+                st.rerun()
 
     info1, info2, info3 = st.columns(3)
     with info1:
@@ -593,3 +651,176 @@ else:
         st.info("🔄 Déploiement en cours — rafraîchissement automatique dans 5 secondes…")
         time.sleep(5)
         st.rerun()
+
+
+# ================================================================== #
+#  PAGE 3 — Lancer une pipeline
+# ================================================================== #
+
+elif st.session_state["nav"] == "run":
+    st.markdown('<p class="header-title">▶️ Lancer une pipeline</p>', unsafe_allow_html=True)
+    st.markdown("")
+
+    # Charger les pipelines disponibles
+    pipelines = api_get("/pipelines")
+    if not pipelines:
+        st.info("Aucune pipeline trouvée.")
+        st.stop()
+
+    # Dropdown pour choisir la pipeline
+    pipeline_names = {p["name"]: p for p in pipelines}
+    selected_name = st.selectbox(
+        "🔧 Pipeline à lancer",
+        list(pipeline_names.keys()),
+    )
+    selected_pipeline = pipeline_names[selected_name]
+
+    # Branche
+    default_branch = selected_pipeline.get("default_branch", "main")
+    branch_input = st.text_input(
+        "🌿 Branche",
+        value=default_branch,
+        placeholder="main",
+    )
+
+    # Résumé
+    st.markdown("---")
+    st.markdown(f"**Pipeline** : {selected_name}")
+    st.markdown(f"**Branche** : `{branch_input or default_branch}`")
+    st.markdown(f"**Definition ID** : `{selected_pipeline['id']}`")
+
+    # Bouton lancer
+    st.markdown("")
+    if st.button("🚀 Lancer le build", type="primary"):
+        with st.spinner("Lancement en cours…"):
+            result = api_post(
+                f"/pipelines/{selected_pipeline['id']}/run",
+                params={"branch": branch_input or default_branch},
+            )
+            if result and result.get("id"):
+                st.success(f"✅ Build **#{result['id']}** lancé avec succès !")
+                st.balloons()
+                time.sleep(2)
+                st.session_state["selected_build_id"] = result["id"]
+                st.session_state["nav"] = "detail"
+                st.rerun()
+            elif result:
+                st.error(f"Réponse inattendue : {result}")
+
+
+# ================================================================== #
+#  PAGE 4 — Historique par pipeline
+# ================================================================== #
+
+elif st.session_state["nav"] == "history":
+    st.markdown('<p class="header-title">📊 Historique par pipeline</p>', unsafe_allow_html=True)
+    st.markdown("")
+
+    # Charger les pipelines disponibles
+    pipelines = api_get("/pipelines")
+    if not pipelines:
+        st.info("Aucune pipeline trouvée.")
+        st.stop()
+
+    pipeline_names = {p["name"]: p for p in pipelines}
+
+    col_h1, col_h2 = st.columns([3, 1])
+    with col_h1:
+        # Si on vient avec un pipeline_id pré-sélectionné
+        pre_selected = st.session_state.get("selected_pipeline_id")
+        default_idx = 0
+        if pre_selected:
+            for i, p in enumerate(pipelines):
+                if p["id"] == pre_selected:
+                    default_idx = i
+                    break
+        selected_name = st.selectbox(
+            "🔧 Pipeline",
+            list(pipeline_names.keys()),
+            index=default_idx,
+        )
+    with col_h2:
+        history_top = st.slider("📦 Nombre de runs", 10, 100, 30)
+
+    selected_pipeline = pipeline_names[selected_name]
+    history = api_get(f"/pipelines/{selected_pipeline['id']}/history", {"top": history_top})
+
+    if not history:
+        st.info("Aucun historique pour cette pipeline.")
+        st.stop()
+
+    st.markdown(f"**{len(history)}** run(s) pour **{selected_name}**")
+    st.markdown("---")
+
+    # Graphique : durée + résultat
+    import pandas as pd
+
+    df = pd.DataFrame(history)
+    df["display_result"] = df.apply(
+        lambda r: r.get("result") or r.get("status", "unknown"), axis=1
+    )
+    df["duration_min"] = df["duration"].apply(
+        lambda d: round(d / 60, 1) if d else 0
+    )
+    df["date"] = df["start_time"].apply(
+        lambda s: s[:10] if s else "?"
+    )
+
+    # Barres colorées
+    color_map = {
+        "succeeded": "#22c55e",
+        "failed": "#ef4444",
+        "canceled": "#6b7280",
+        "partiallySucceeded": "#eab308",
+        "inProgress": "#f97316",
+        "unknown": "#9ca3af",
+    }
+
+    # Résumé stats
+    total = len(df)
+    succeeded = len(df[df["display_result"] == "succeeded"])
+    failed = len(df[df["display_result"] == "failed"])
+    success_rate = round((succeeded / total) * 100) if total else 0
+
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        st.metric("Total runs", total)
+    with s2:
+        st.metric("✅ Réussis", succeeded)
+    with s3:
+        st.metric("❌ Échoués", failed)
+    with s4:
+        st.metric("📈 Taux de succès", f"{success_rate}%")
+
+    st.markdown("---")
+
+    # Chart avec st.bar_chart n'est pas assez flexible pour les couleurs.
+    # Utilisons un tableau coloré
+    st.markdown("### 📈 Derniers builds")
+    for entry in history:
+        e_id = entry["id"]
+        e_result = entry.get("result") or entry.get("status", "unknown")
+        e_icon = status_icon(e_result)
+        e_dur = format_duration(entry.get("duration"))
+        e_date = format_time(entry.get("start_time"))
+        color = color_map.get(e_result, "#9ca3af")
+        dur_pct = min(int((entry.get("duration", 0) or 0) / max(
+            max((e.get("duration", 0) or 0) for e in history), 1
+        ) * 100), 100)
+
+        c1, c2, c3, c4 = st.columns([0.5, 2, 3, 1])
+        with c1:
+            st.markdown(f"{e_icon}")
+        with c2:
+            st.caption(f"#{e_id} — {e_date}")
+        with c3:
+            st.markdown(
+                f'<div style="background:{color};height:20px;border-radius:4px;width:{max(dur_pct, 5)}%;"></div>',
+                unsafe_allow_html=True,
+            )
+        with c4:
+            st.caption(e_dur)
+            if st.button("▶", key=f"hist_{e_id}"):
+                st.session_state["selected_build_id"] = e_id
+                st.session_state["nav"] = "detail"
+                st.rerun()

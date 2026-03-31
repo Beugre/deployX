@@ -14,9 +14,11 @@ from typing import Any, Optional
 import httpx
 
 from models import (
+    BuildHistoryEntry,
     DeploymentDetail,
     DeploymentSummary,
     JobDetail,
+    PipelineDefinition,
     StageDetail,
     StepDetail,
     TimelineResponse,
@@ -68,6 +70,44 @@ class AzureDevOpsClient:
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 resp = await client.get(url, headers=self.headers, params=params)
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as exc:
+                raise AzureDevOpsClientError(
+                    f"Azure DevOps API error: {exc.response.status_code} — {exc.response.text}",
+                    status_code=exc.response.status_code,
+                ) from exc
+            except httpx.RequestError as exc:
+                raise AzureDevOpsClientError(
+                    f"Erreur réseau lors de l'appel Azure DevOps : {exc}"
+                ) from exc
+
+    async def _post(self, url: str, json_body: dict | None = None, params: dict | None = None) -> Any:
+        """Effectue un POST authentifié vers Azure DevOps (JSON)."""
+        params = params or {}
+        params["api-version"] = self.API_VERSION
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.post(url, headers=self.headers, json=json_body or {}, params=params)
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as exc:
+                raise AzureDevOpsClientError(
+                    f"Azure DevOps API error: {exc.response.status_code} — {exc.response.text}",
+                    status_code=exc.response.status_code,
+                ) from exc
+            except httpx.RequestError as exc:
+                raise AzureDevOpsClientError(
+                    f"Erreur réseau lors de l'appel Azure DevOps : {exc}"
+                ) from exc
+
+    async def _patch(self, url: str, json_body: dict | None = None, params: dict | None = None) -> Any:
+        """Effectue un PATCH authentifié vers Azure DevOps (JSON)."""
+        params = params or {}
+        params["api-version"] = self.API_VERSION
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.patch(url, headers=self.headers, json=json_body or {}, params=params)
                 resp.raise_for_status()
                 return resp.json()
             except httpx.HTTPStatusError as exc:
@@ -150,6 +190,68 @@ class AzureDevOpsClient:
         return await self._get_text(url)
 
     # ------------------------------------------------------------------ #
+    #  Pipeline Definitions
+    # ------------------------------------------------------------------ #
+
+    async def list_definitions(self) -> list[PipelineDefinition]:
+        """Récupère la liste des définitions de pipelines."""
+        url = f"{self.base_url}/build/definitions"
+        data = await self._get(url, {"$top": 200})
+        defs = data.get("value", [])
+        return [
+            PipelineDefinition(
+                id=d["id"],
+                name=d.get("name", "—"),
+                path=d.get("path"),
+                default_branch=(d.get("defaultBranch") or "").replace("refs/heads/", ""),
+                url=d.get("_links", {}).get("web", {}).get("href"),
+            )
+            for d in defs
+        ]
+
+    async def queue_build(self, definition_id: int, branch: Optional[str] = None) -> dict:
+        """Lance un build pour une définition de pipeline."""
+        url = f"{self.base_url}/build/builds"
+        body: dict[str, Any] = {
+            "definition": {"id": definition_id},
+        }
+        if branch:
+            source_branch = branch if branch.startswith("refs/") else f"refs/heads/{branch}"
+            body["sourceBranch"] = source_branch
+        data = await self._post(url, json_body=body)
+        return {"id": data["id"], "status": data.get("status"), "url": data.get("_links", {}).get("web", {}).get("href")}
+
+    async def cancel_build(self, build_id: int) -> dict:
+        """Annule un build en cours."""
+        url = f"{self.base_url}/build/builds/{build_id}"
+        data = await self._patch(url, json_body={"status": "cancelling"})
+        return {"id": data["id"], "status": data.get("status")}
+
+    async def get_build_history(
+        self, definition_id: int, top: int = 30
+    ) -> list[BuildHistoryEntry]:
+        """Récupère l'historique des builds pour une pipeline donnée."""
+        url = f"{self.base_url}/build/builds"
+        params: dict[str, Any] = {"definitions": str(definition_id), "$top": top}
+        data = await self._get(url, params)
+        builds = data.get("value", [])
+        entries = []
+        for b in builds:
+            start = b.get("startTime")
+            finish = b.get("finishTime")
+            entries.append(
+                BuildHistoryEntry(
+                    id=b["id"],
+                    status=b.get("status", "unknown"),
+                    result=b.get("result"),
+                    start_time=start,
+                    finish_time=finish,
+                    duration=self._compute_duration(start, finish),
+                )
+            )
+        return entries
+
+    # ------------------------------------------------------------------ #
     #  Mapping helpers
     # ------------------------------------------------------------------ #
 
@@ -199,6 +301,7 @@ class AzureDevOpsClient:
         return DeploymentSummary(
             id=build["id"],
             pipeline_name=build.get("definition", {}).get("name", "—"),
+            definition_id=build.get("definition", {}).get("id"),
             status=build.get("status", "unknown"),
             result=build.get("result"),
             branch=build.get("sourceBranch", "").replace("refs/heads/", ""),
@@ -214,6 +317,7 @@ class AzureDevOpsClient:
         return DeploymentDetail(
             id=build["id"],
             pipeline_name=build.get("definition", {}).get("name", "—"),
+            definition_id=build.get("definition", {}).get("id"),
             status=build.get("status", "unknown"),
             result=build.get("result"),
             branch=build.get("sourceBranch", "").replace("refs/heads/", ""),

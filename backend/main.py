@@ -14,7 +14,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from azure_devops_client import AzureDevOpsClient, AzureDevOpsClientError
-from models import DeploymentDetail, DeploymentSummary, TimelineResponse
+from models import (
+    BuildHistoryEntry,
+    DeploymentDetail,
+    DeploymentSummary,
+    PipelineDefinition,
+    QueueBuildRequest,
+    TimelineResponse,
+)
 
 # Charger les variables d'environnement depuis .env
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -131,5 +138,67 @@ async def get_build_log(build_id: int, log_id: int):
     try:
         content = await client.get_build_log(build_id, log_id)
         return {"log_id": log_id, "content": content}
+    except AzureDevOpsClientError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=exc.message)
+
+
+# ------------------------------------------------------------------ #
+#  Endpoints Pipelines
+# ------------------------------------------------------------------ #
+
+
+@app.get(
+    "/pipelines",
+    response_model=list[PipelineDefinition],
+    tags=["Pipelines"],
+    summary="Liste des pipelines",
+)
+async def list_pipelines():
+    """Retourne la liste des définitions de pipelines Azure DevOps."""
+    try:
+        return await client.list_definitions()
+    except AzureDevOpsClientError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=exc.message)
+
+
+@app.post(
+    "/pipelines/{definition_id}/run",
+    tags=["Pipelines"],
+    summary="Lancer une pipeline",
+)
+async def run_pipeline(definition_id: int, branch: Optional[str] = Query(None, description="Branche source")):
+    """Déclenche un nouveau build pour la pipeline spécifiée."""
+    try:
+        return await client.queue_build(definition_id, branch)
+    except AzureDevOpsClientError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=exc.message)
+
+
+@app.post(
+    "/deployments/{build_id}/cancel",
+    tags=["Deployments"],
+    summary="Annuler un déploiement",
+)
+async def cancel_deployment(build_id: int):
+    """Annule un build en cours."""
+    try:
+        return await client.cancel_build(build_id)
+    except AzureDevOpsClientError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=exc.message)
+
+
+@app.get(
+    "/pipelines/{definition_id}/history",
+    response_model=list[BuildHistoryEntry],
+    tags=["Pipelines"],
+    summary="Historique d'une pipeline",
+)
+async def get_pipeline_history(
+    definition_id: int,
+    top: int = Query(30, ge=1, le=100, description="Nombre de builds"),
+):
+    """Retourne l'historique des builds pour une pipeline."""
+    try:
+        return await client.get_build_history(definition_id, top)
     except AzureDevOpsClientError as exc:
         raise HTTPException(status_code=exc.status_code or 502, detail=exc.message)

@@ -48,6 +48,7 @@ class DeploymentSummary(BaseModel):
     """Résumé d'un déploiement pour la liste."""
     id: int
     pipeline_name: str
+    definition_id: Optional[int] = None
     status: str
     branch: Optional[str] = None
     start_time: Optional[str] = None
@@ -61,6 +62,7 @@ class DeploymentDetail(BaseModel):
     """Détail complet d'un déploiement incluant la hiérarchie."""
     id: int
     pipeline_name: str
+    definition_id: Optional[int] = None
     status: str
     result: Optional[str] = None
     branch: Optional[str] = None
@@ -76,3 +78,28 @@ class TimelineResponse(BaseModel):
     """Réponse timeline structurée."""
     build_id: int
     stages: list[StageDetail] = []
+
+
+class PipelineDefinition(BaseModel):
+    """Définition de pipeline Azure DevOps."""
+    id: int
+    name: str
+    path: Optional[str] = None
+    default_branch: Optional[str] = None
+    url: Optional[str] = None
+
+
+class QueueBuildRequest(BaseModel):
+    """Requête pour lancer un build."""
+    definition_id: int
+    branch: Optional[str] = None
+
+
+class BuildHistoryEntry(BaseModel):
+    """Entrée d'historique simplifié pour un graphique."""
+    id: int
+    status: str
+    result: Optional[str] = None
+    start_time: Optional[str] = None
+    finish_time: Optional[str] = None
+    duration: Optional[float] = None
