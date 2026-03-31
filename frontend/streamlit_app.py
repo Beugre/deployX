@@ -102,8 +102,8 @@ st.markdown(
 # ------------------------------------------------------------------ #
 
 
-def wake_up_backend(max_retries: int = 12, interval: float = 5.0) -> bool:
-    """Ping le backend jusqu'à ce qu'il réponde (max ~60s)."""
+def wake_up_backend(max_retries: int = 30, interval: float = 5.0) -> bool:
+    """Ping le backend jusqu'à ce qu'il réponde (max ~2min30)."""
     for attempt in range(max_retries):
         try:
             resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
@@ -129,13 +129,33 @@ if not st.session_state["backend_ready"]:
         pass
 
     if not st.session_state["backend_ready"]:
-        with st.spinner("⏳ Réveil du backend en cours… (~30 secondes pour le plan gratuit Render)"):
-            if wake_up_backend():
-                st.session_state["backend_ready"] = True
-                st.rerun()
-            else:
-                st.error("❌ Impossible de joindre le backend après 60s. Vérifiez le déploiement.")
-                st.stop()
+        placeholder = st.empty()
+        placeholder.info("⏳ **Réveil du backend en cours…**\n\nLe plan gratuit Render met le serveur en veille après 15 min d'inactivité. Le redémarrage peut prendre **jusqu'à 2 minutes**. Merci de patienter, cette page se mettra à jour automatiquement.")
+
+        progress = st.progress(0, text="Connexion au backend…")
+        max_retries = 30
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
+                if resp.status_code == 200:
+                    st.session_state["backend_ready"] = True
+                    progress.progress(100, text="✅ Backend prêt !")
+                    time.sleep(1)
+                    placeholder.empty()
+                    progress.empty()
+                    st.rerun()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                pass
+
+            pct = int(((attempt + 1) / max_retries) * 100)
+            elapsed = int((attempt + 1) * 5)
+            progress.progress(pct, text=f"Tentative {attempt + 1}/{max_retries} — {elapsed}s écoulées…")
+            time.sleep(5)
+
+        placeholder.empty()
+        progress.empty()
+        st.error("❌ Impossible de joindre le backend après 2 minutes. Vérifiez le déploiement sur Render.")
+        st.stop()
 
 
 # ------------------------------------------------------------------ #
