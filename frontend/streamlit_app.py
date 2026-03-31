@@ -130,11 +130,19 @@ if not st.session_state["backend_ready"]:
 
     if not st.session_state["backend_ready"]:
         placeholder = st.empty()
-        placeholder.info("⏳ **Réveil du backend en cours…**\n\nLe plan gratuit Render met le serveur en veille après 15 min d'inactivité. Le redémarrage peut prendre **jusqu'à 2 minutes**. Merci de patienter, cette page se mettra à jour automatiquement.")
+        placeholder.info(
+            "⏳ **Réveil du backend en cours…**\n\n"
+            "Le plan gratuit Render met le serveur en veille après 15 min d'inactivité. "
+            "Le redémarrage peut prendre **jusqu'à 5 minutes**. "
+            "Merci de patienter, cette page se mettra à jour automatiquement."
+        )
 
         progress = st.progress(0, text="Connexion au backend…")
-        max_retries = 30
-        for attempt in range(max_retries):
+        start_ts = time.time()
+        attempt = 0
+        # Boucle sans limite — on attend tant que le backend n'est pas prêt
+        while True:
+            attempt += 1
             try:
                 resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
                 if resp.status_code == 200:
@@ -147,15 +155,13 @@ if not st.session_state["backend_ready"]:
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
                 pass
 
-            pct = int(((attempt + 1) / max_retries) * 100)
-            elapsed = int((attempt + 1) * 5)
-            progress.progress(pct, text=f"Tentative {attempt + 1}/{max_retries} — {elapsed}s écoulées…")
+            elapsed = int(time.time() - start_ts)
+            minutes = elapsed // 60
+            seconds = elapsed % 60
+            # Barre de progression sur 5 min (300s) — reste à 99% si ça dépasse
+            pct = min(int((elapsed / 300) * 100), 99)
+            progress.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
             time.sleep(5)
-
-        placeholder.empty()
-        progress.empty()
-        st.error("❌ Impossible de joindre le backend après 2 minutes. Vérifiez le déploiement sur Render.")
-        st.stop()
 
 
 # ------------------------------------------------------------------ #
