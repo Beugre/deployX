@@ -133,7 +133,7 @@ if not st.session_state["backend_ready"]:
         placeholder.info(
             "⏳ **Réveil du backend en cours…**\n\n"
             "Le plan gratuit Render met le serveur en veille après 15 min d'inactivité. "
-            "Le redémarrage peut prendre **jusqu'à 5 minutes**. "
+            "Le redémarrage prend généralement **30 à 90 secondes**. "
             "Merci de patienter, cette page se mettra à jour automatiquement."
         )
 
@@ -141,18 +141,29 @@ if not st.session_state["backend_ready"]:
         start_ts = time.time()
         attempt = 0
         # Boucle sans limite — on attend tant que le backend n'est pas prêt
+        # Timeout long (120s) pour laisser Render démarrer le container,
+        # au lieu de plein de petits timeouts qui expirent trop tôt.
         while True:
             attempt += 1
+            elapsed = int(time.time() - start_ts)
+            minutes = elapsed // 60
+            seconds = elapsed % 60
+            pct = min(int((elapsed / 180) * 100), 99)
+            progress.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
             try:
-                resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
+                resp = requests.get(f"{BACKEND_URL}/health", timeout=120)
                 if resp.status_code == 200:
                     st.session_state["backend_ready"] = True
                     progress.progress(100, text="✅ Backend prêt !")
-                    time.sleep(1)
+                    time.sleep(0.5)
                     placeholder.empty()
                     progress.empty()
                     st.rerun()
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            except requests.exceptions.ConnectionError:
+                # Le service n'est pas encore joignable, on réessaie après 3s
+                time.sleep(3)
+            except requests.exceptions.Timeout:
+                # 120s sans réponse — très rare, on réessaie immédiatement
                 pass
 
             elapsed = int(time.time() - start_ts)
