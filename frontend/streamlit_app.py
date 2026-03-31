@@ -134,10 +134,12 @@ if not st.session_state["backend_ready"]:
             "⏳ **Réveil du backend en cours…**\n\n"
             "Le plan gratuit Render met le serveur en veille après 15 min d'inactivité. "
             "Le redémarrage prend généralement **30 à 90 secondes**. "
-            "Merci de patienter, cette page se mettra à jour automatiquement."
+            "Merci de patienter, cette page se mettra à jour automatiquement.\n\n"
+            f"🔗 Backend URL : `{BACKEND_URL}`"
         )
 
         progress = st.progress(0, text="Connexion au backend…")
+        error_display = st.empty()
         start_ts = time.time()
         attempt = 0
         # Boucle sans limite — on attend tant que le backend n'est pas prêt
@@ -158,12 +160,15 @@ if not st.session_state["backend_ready"]:
                     time.sleep(0.5)
                     placeholder.empty()
                     progress.empty()
+                    error_display.empty()
                     st.rerun()
-            except requests.exceptions.ConnectionError:
-                # Le service n'est pas encore joignable, on réessaie après 3s
+                else:
+                    error_display.caption(f"⚠️ Réponse HTTP {resp.status_code}")
+            except requests.exceptions.ConnectionError as e:
+                error_display.caption(f"🔌 ConnectionError : {str(e)[:200]}")
                 time.sleep(3)
             except requests.exceptions.Timeout:
-                # 120s sans réponse — très rare, on réessaie immédiatement
+                error_display.caption("⏱️ Timeout 120s — le backend n'a pas répondu")
                 pass
 
             elapsed = int(time.time() - start_ts)
