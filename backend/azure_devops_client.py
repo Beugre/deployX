@@ -108,6 +108,7 @@ class AzureDevOpsClient:
         top: int = 50,
         branch: Optional[str] = None,
         status: Optional[str] = None,
+        result: Optional[str] = None,
         definition_id: Optional[int] = None,
     ) -> list[DeploymentSummary]:
         """Récupère la liste des builds Azure DevOps et les transforme."""
@@ -117,6 +118,8 @@ class AzureDevOpsClient:
             params["branchName"] = branch
         if status:
             params["statusFilter"] = status
+        if result:
+            params["resultFilter"] = result
         if definition_id:
             params["definitions"] = str(definition_id)
 

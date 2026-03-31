@@ -81,12 +81,13 @@ async def list_deployments(
     top: int = Query(50, ge=1, le=200, description="Nombre max de résultats"),
     branch: Optional[str] = Query(None, description="Filtrer par branche"),
     status: Optional[str] = Query(None, description="Filtrer par statut (inProgress, completed, …)"),
+    result: Optional[str] = Query(None, description="Filtrer par résultat (succeeded, failed, canceled, partiallySucceeded)"),
     definition_id: Optional[int] = Query(None, description="Filtrer par pipeline definition ID"),
 ):
     """Retourne la liste des derniers déploiements Azure DevOps."""
     try:
         return await client.list_builds(
-            top=top, branch=branch, status=status, definition_id=definition_id
+            top=top, branch=branch, status=status, result=result, definition_id=definition_id
         )
     except AzureDevOpsClientError as exc:
         raise HTTPException(status_code=exc.status_code or 502, detail=exc.message)

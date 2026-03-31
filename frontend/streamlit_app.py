@@ -296,13 +296,23 @@ if st.session_state["nav"] == "list":
     st.markdown("")
 
     # Filtres
+    # Mapping filtre → paramètres API Azure DevOps
+    FILTER_OPTIONS = {
+        "Tous":                   {"status": None, "result": None},
+        "✅ Réussi":              {"status": "completed", "result": "succeeded"},
+        "❌ Échoué":              {"status": "completed", "result": "failed"},
+        "🔄 En cours":            {"status": "inProgress", "result": None},
+        "🚫 Annulé":              {"status": "completed", "result": "canceled"},
+        "⚠️ Partiellement réussi": {"status": "completed", "result": "partiallySucceeded"},
+    }
+
     col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 1])
     with col_f1:
         filter_branch = st.text_input("🌿 Branche", placeholder="main")
     with col_f2:
         filter_status = st.selectbox(
             "📊 Statut",
-            ["Tous", "inProgress", "completed", "cancelling", "notStarted"],
+            list(FILTER_OPTIONS.keys()),
         )
     with col_f3:
         filter_top = st.slider("📦 Nombre max", 10, 200, 50)
@@ -319,8 +329,11 @@ if st.session_state["nav"] == "list":
             if not filter_branch.startswith("refs/")
             else filter_branch
         )
-    if filter_status != "Tous":
-        params["status"] = filter_status
+    selected_filter = FILTER_OPTIONS[filter_status]
+    if selected_filter["status"]:
+        params["status"] = selected_filter["status"]
+    if selected_filter["result"]:
+        params["result"] = selected_filter["result"]
 
     deployments = api_get("/deployments", params)
 
