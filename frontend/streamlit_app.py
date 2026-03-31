@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import time
+import threading
 from datetime import datetime
 from typing import Any, Optional
 
@@ -98,21 +99,34 @@ st.markdown(
 
 
 # ------------------------------------------------------------------ #
-#  Warm-up automatique du backend
+#  Keep-alive : empêche Render Free de mettre le backend en veille
 # ------------------------------------------------------------------ #
 
+_keep_alive_started = False
 
-def wake_up_backend(max_retries: int = 30, interval: float = 5.0) -> bool:
-    """Ping le backend jusqu'à ce qu'il réponde (max ~2min30)."""
-    for attempt in range(max_retries):
+
+def _keep_alive_loop():
+    """Ping le backend toutes les 13 min pour éviter la mise en veille Render (seuil = 15 min)."""
+    while True:
+        time.sleep(13 * 60)  # 13 minutes
         try:
-            resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
-            if resp.status_code == 200:
-                return True
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            requests.get(f"{BACKEND_URL}/health", timeout=10)
+        except Exception:
             pass
-        time.sleep(interval)
-    return False
+
+
+def start_keep_alive():
+    """Lance le thread keep-alive une seule fois par processus."""
+    global _keep_alive_started
+    if not _keep_alive_started:
+        _keep_alive_started = True
+        t = threading.Thread(target=_keep_alive_loop, daemon=True)
+        t.start()
+
+
+# ------------------------------------------------------------------ #
+#  Warm-up automatique du backend
+# ------------------------------------------------------------------ #
 
 
 # Au chargement, vérifier si le backend est prêt
@@ -125,6 +139,7 @@ if not st.session_state["backend_ready"]:
         r = requests.get(f"{BACKEND_URL}/health", timeout=3)
         if r.status_code == 200:
             st.session_state["backend_ready"] = True
+            start_keep_alive()
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         pass
 
@@ -133,7 +148,7 @@ if not st.session_state["backend_ready"]:
         placeholder.info(
             "⏳ **Réveil du backend en cours…**\n\n"
             "Le plan gratuit Render met le serveur en veille après 15 min d'inactivité. "
-            "Le redémarrage prend généralement **30 à 90 secondes**. "
+            "Le premier démarrage peut prendre **1 à 3 minutes** (démarrage du container). "
             "Merci de patienter, cette page se mettra à jour automatiquement."
         )
 
@@ -141,20 +156,23 @@ if not st.session_state["backend_ready"]:
         error_display = st.empty()
         start_ts = time.time()
         attempt = 0
-        # Boucle sans limite — on attend tant que le backend n'est pas prêt
-        # Timeout long (120s) pour laisser Render démarrer le container,
-        # au lieu de plein de petits timeouts qui expirent trop tôt.
+        max_wait = 300  # Timeout global : 5 minutes max
+        retry_interval = 5  # Secondes entre chaque tentative
+
         while True:
             attempt += 1
-            elapsed = int(time.time() - start_ts)
-            minutes = elapsed // 60
-            seconds = elapsed % 60
-            pct = min(int((elapsed / 180) * 100), 99)
+            elapsed = time.time() - start_ts
+            elapsed_int = int(elapsed)
+            minutes = elapsed_int // 60
+            seconds = elapsed_int % 60
+            pct = min(int((elapsed / max_wait) * 100), 99)
             progress.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
+
             try:
-                resp = requests.get(f"{BACKEND_URL}/health", timeout=120)
+                resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
                 if resp.status_code == 200:
                     st.session_state["backend_ready"] = True
+                    start_keep_alive()
                     progress.progress(100, text="✅ Backend prêt !")
                     time.sleep(0.5)
                     placeholder.empty()
@@ -163,21 +181,28 @@ if not st.session_state["backend_ready"]:
                     st.rerun()
                 else:
                     error_display.caption(f"⚠️ Réponse HTTP {resp.status_code} — le backend démarre…")
-                    time.sleep(5)
-            except requests.exceptions.ConnectionError as e:
-                error_display.caption(f"🔌 ConnectionError : {str(e)[:200]}")
-                time.sleep(5)
+            except requests.exceptions.ConnectionError:
+                error_display.caption("🔌 Connexion impossible — le backend n'est pas encore prêt…")
             except requests.exceptions.Timeout:
-                error_display.caption("⏱️ Timeout 120s — le backend n'a pas répondu")
-                time.sleep(2)
+                error_display.caption("⏱️ Timeout — le backend ne répond pas encore…")
 
-            elapsed = int(time.time() - start_ts)
-            minutes = elapsed // 60
-            seconds = elapsed % 60
-            # Barre de progression sur 5 min (300s) — reste à 99% si ça dépasse
-            pct = min(int((elapsed / 300) * 100), 99)
-            progress.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
-            time.sleep(5)
+            # Vérifier le timeout global
+            if time.time() - start_ts > max_wait:
+                progress.progress(100, text="❌ Timeout dépassé")
+                placeholder.empty()
+                error_display.empty()
+                st.error(
+                    "❌ **Le backend n'a pas répondu après 5 minutes.**\n\n"
+                    "Causes possibles :\n"
+                    "- Les variables d'environnement (`AZDO_ORG`, `AZDO_PROJECT`, `AZDO_PAT`) ne sont pas configurées sur Render\n"
+                    "- Le service backend est suspendu ou en erreur sur le dashboard Render\n"
+                    "- L'URL du backend est incorrecte\n\n"
+                    f"URL testée : `{BACKEND_URL}/health`\n\n"
+                    "Vérifiez les logs du service **deployx-api** sur le dashboard Render."
+                )
+                st.stop()
+
+            time.sleep(retry_interval)
 
 
 # ------------------------------------------------------------------ #
