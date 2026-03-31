@@ -306,7 +306,7 @@ if st.session_state["nav"] == "list":
         "⚠️ Partiellement réussi": {"status": "completed", "result": "partiallySucceeded"},
     }
 
-    col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 1])
+    col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([2, 2, 2, 1.5, 1])
     with col_f1:
         filter_branch = st.text_input("🌿 Branche", placeholder="main")
     with col_f2:
@@ -315,8 +315,10 @@ if st.session_state["nav"] == "list":
             list(FILTER_OPTIONS.keys()),
         )
     with col_f3:
-        filter_top = st.slider("📦 Nombre max", 10, 200, 50)
+        filter_pipeline = st.text_input("🔧 Pipeline", placeholder="Nom de la pipeline")
     with col_f4:
+        filter_top = st.slider("📦 Nombre max", 10, 200, 50)
+    with col_f5:
         st.markdown("")
         st.markdown("")
         st.button("🔄 Rafraîchir")
@@ -336,6 +338,14 @@ if st.session_state["nav"] == "list":
         params["result"] = selected_filter["result"]
 
     deployments = api_get("/deployments", params)
+
+    # Filtre côté client sur le nom de pipeline
+    if filter_pipeline:
+        search_term = filter_pipeline.lower()
+        deployments = [
+            d for d in deployments
+            if search_term in d.get("pipeline_name", "").lower()
+        ]
 
     if not deployments:
         st.info("Aucun déploiement trouvé.")
