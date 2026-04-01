@@ -132,79 +132,63 @@ def start_keep_alive():
 # Au chargement, vérifier si le backend est prêt
 if "backend_ready" not in st.session_state:
     st.session_state["backend_ready"] = False
+if "warmup_start" not in st.session_state:
+    st.session_state["warmup_start"] = None
+if "warmup_attempt" not in st.session_state:
+    st.session_state["warmup_attempt"] = 0
 
 if not st.session_state["backend_ready"]:
-    # Test rapide
+    # Test rapide (non-bloquant)
     try:
-        r = requests.get(f"{BACKEND_URL}/health", timeout=3)
+        r = requests.get(f"{BACKEND_URL}/health", timeout=5)
         if r.status_code == 200:
             st.session_state["backend_ready"] = True
+            st.session_state["warmup_start"] = None
+            st.session_state["warmup_attempt"] = 0
             start_keep_alive()
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         pass
 
     if not st.session_state["backend_ready"]:
-        placeholder = st.empty()
-        placeholder.info(
+        # Initialiser le timer au premier passage
+        if st.session_state["warmup_start"] is None:
+            st.session_state["warmup_start"] = time.time()
+
+        st.session_state["warmup_attempt"] += 1
+        attempt = st.session_state["warmup_attempt"]
+        elapsed = time.time() - st.session_state["warmup_start"]
+        elapsed_int = int(elapsed)
+        minutes = elapsed_int // 60
+        seconds = elapsed_int % 60
+        max_wait = 300  # 5 minutes max
+
+        st.info(
             "⏳ **Réveil du backend en cours…**\n\n"
             "Le plan gratuit Render met le serveur en veille après 15 min d'inactivité. "
             "Le premier démarrage peut prendre **1 à 3 minutes** (démarrage du container). "
             "Merci de patienter, cette page se mettra à jour automatiquement."
         )
 
-        progress = st.progress(0, text="Connexion au backend…")
-        error_display = st.empty()
-        start_ts = time.time()
-        attempt = 0
-        max_wait = 300  # Timeout global : 5 minutes max
-        retry_interval = 3  # Secondes entre chaque tentative (si réponse rapide type 502)
+        pct = min(int((elapsed / max_wait) * 100), 99)
+        st.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
 
-        while True:
-            attempt += 1
-            elapsed = time.time() - start_ts
-            elapsed_int = int(elapsed)
-            minutes = elapsed_int // 60
-            seconds = elapsed_int % 60
-            pct = min(int((elapsed / max_wait) * 100), 99)
-            progress.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
+        if elapsed > max_wait:
+            st.session_state["warmup_start"] = None
+            st.session_state["warmup_attempt"] = 0
+            st.error(
+                "❌ **Le backend n'a pas répondu après 5 minutes.**\n\n"
+                "Causes possibles :\n"
+                "- Les variables d'environnement (`AZDO_ORG`, `AZDO_PROJECT`, `AZDO_PAT`) ne sont pas configurées sur Render\n"
+                "- Le service backend est suspendu ou en erreur sur le dashboard Render\n"
+                "- L'URL du backend est incorrecte\n\n"
+                f"URL testée : `{BACKEND_URL}/health`\n\n"
+                "Vérifiez les logs du service **deployx-api** sur le dashboard Render."
+            )
+            st.stop()
 
-            try:
-                # Timeout long : Render peut bloquer la connexion pendant le cold start
-                # au lieu de renvoyer 502 immédiatement
-                resp = requests.get(f"{BACKEND_URL}/health", timeout=120)
-                if resp.status_code == 200:
-                    st.session_state["backend_ready"] = True
-                    start_keep_alive()
-                    progress.progress(100, text="✅ Backend prêt !")
-                    time.sleep(0.5)
-                    placeholder.empty()
-                    progress.empty()
-                    error_display.empty()
-                    st.rerun()
-                else:
-                    error_display.caption(f"⚠️ Réponse HTTP {resp.status_code} — le backend démarre…")
-            except requests.exceptions.ConnectionError:
-                error_display.caption("🔌 Connexion impossible — le backend n'est pas encore prêt…")
-            except requests.exceptions.Timeout:
-                error_display.caption("⏱️ Timeout 2min — le backend ne répond pas encore…")
-
-            # Vérifier le timeout global
-            if time.time() - start_ts > max_wait:
-                progress.progress(100, text="❌ Timeout dépassé")
-                placeholder.empty()
-                error_display.empty()
-                st.error(
-                    "❌ **Le backend n'a pas répondu après 5 minutes.**\n\n"
-                    "Causes possibles :\n"
-                    "- Les variables d'environnement (`AZDO_ORG`, `AZDO_PROJECT`, `AZDO_PAT`) ne sont pas configurées sur Render\n"
-                    "- Le service backend est suspendu ou en erreur sur le dashboard Render\n"
-                    "- L'URL du backend est incorrecte\n\n"
-                    f"URL testée : `{BACKEND_URL}/health`\n\n"
-                    "Vérifiez les logs du service **deployx-api** sur le dashboard Render."
-                )
-                st.stop()
-
-            time.sleep(retry_interval)
+        # Attendre 5s puis relancer le script (non-bloquant pour Streamlit)
+        time.sleep(5)
+        st.rerun()
 
 
 # ------------------------------------------------------------------ #
