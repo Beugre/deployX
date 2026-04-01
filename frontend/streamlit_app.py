@@ -157,7 +157,7 @@ if not st.session_state["backend_ready"]:
         start_ts = time.time()
         attempt = 0
         max_wait = 300  # Timeout global : 5 minutes max
-        retry_interval = 5  # Secondes entre chaque tentative
+        retry_interval = 3  # Secondes entre chaque tentative (si réponse rapide type 502)
 
         while True:
             attempt += 1
@@ -169,7 +169,9 @@ if not st.session_state["backend_ready"]:
             progress.progress(pct, text=f"⏳ Tentative {attempt} — {minutes}m {seconds:02d}s écoulées…")
 
             try:
-                resp = requests.get(f"{BACKEND_URL}/health", timeout=10)
+                # Timeout long : Render peut bloquer la connexion pendant le cold start
+                # au lieu de renvoyer 502 immédiatement
+                resp = requests.get(f"{BACKEND_URL}/health", timeout=120)
                 if resp.status_code == 200:
                     st.session_state["backend_ready"] = True
                     start_keep_alive()
@@ -184,7 +186,7 @@ if not st.session_state["backend_ready"]:
             except requests.exceptions.ConnectionError:
                 error_display.caption("🔌 Connexion impossible — le backend n'est pas encore prêt…")
             except requests.exceptions.Timeout:
-                error_display.caption("⏱️ Timeout — le backend ne répond pas encore…")
+                error_display.caption("⏱️ Timeout 2min — le backend ne répond pas encore…")
 
             # Vérifier le timeout global
             if time.time() - start_ts > max_wait:
